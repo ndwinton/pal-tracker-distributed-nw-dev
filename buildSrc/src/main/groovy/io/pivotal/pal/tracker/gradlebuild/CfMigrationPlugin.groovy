@@ -33,7 +33,7 @@ class CfMigrationPlugin implements Plugin<Project> {
                     doLast {
                         println "Opening Tunnel for $appName"
                         Thread.start {
-                            tunnelProcess = "cf ssh -N -L ${TUNNEL_PORT}:${credentials["hostname"]}:${credentials["port"]} $appName".execute()
+                            tunnelProcess = "cf ssh -N -L ${TUNNEL_PORT}:${credentials['hostname']}:${credentials['port']} $appName".execute()
                         }
 
                         waitForTunnelConnectivity()
@@ -50,13 +50,13 @@ class CfMigrationPlugin implements Plugin<Project> {
                 task("cfMigrate", type: FlywayMigrateTask, group: "Migration") {
                     dependsOn "openTunnel"
                     finalizedBy "closeTunnel"
-                    doFirst { extension = buildFlywayExtension(project, appName, databaseInstanceName, credentials) }
+                    doFirst { extension = buildFlywayExtension(project, credentials) }
                 }
 
                 task("cfRepair", type: FlywayRepairTask, group: "Migration") {
                     dependsOn "openTunnel"
                     finalizedBy "closeTunnel"
-                    doFirst { extension = buildFlywayExtension(project, appName, databaseInstanceName, credentials) }
+                    doFirst { extension = buildFlywayExtension(project, credentials) }
                 }
             }
         }
@@ -76,12 +76,12 @@ class CfMigrationPlugin implements Plugin<Project> {
         }
     }
 
-    private static def buildFlywayExtension(Project project, String cfAppName, databaseInstanceName, credentials) {
+    private static def buildFlywayExtension(Project project, Map credentials) {
         def extension = new FlywayExtension()
 
-        extension.user = credentials["username"]
-        extension.password = credentials["password"]
-        extension.url = "jdbc:mysql://127.0.0.1:${TUNNEL_PORT}/${credentials["name"]}"
+        extension.user = credentials['username']
+        extension.password = credentials['password']
+        extension.url = "jdbc:mysql://127.0.0.1:${TUNNEL_PORT}/${credentials['name']}"
 
         extension.locations = ["filesystem:$project.projectDir/migrations"]
         return extension
@@ -98,12 +98,12 @@ class CfMigrationPlugin implements Plugin<Project> {
         def vcapServicesMap = new JsonSlurper().parseText(vcapServicesJson)
 
         def entryWithDbInstance = vcapServicesMap
-                .find { key, value -> value.any { it["name"] == databaseInstanceName } }
+                .find { key, value -> value.any { it['name'] == databaseInstanceName } }
 
         def dbInstance = entryWithDbInstance.value
-                .find { it["name"] == databaseInstanceName }
+                .find { it['name'] == databaseInstanceName }
 
-        return dbInstance["credentials"]
+        return dbInstance['credentials'] as Map
     }
 
     private static String execute(List args) {
