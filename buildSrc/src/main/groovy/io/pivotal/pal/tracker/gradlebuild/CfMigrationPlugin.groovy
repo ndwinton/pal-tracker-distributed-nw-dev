@@ -9,6 +9,7 @@ import org.gradle.api.Project
 
 class CfMigrationPlugin implements Plugin<Project> {
     private final static int TUNNEL_PORT = 63306
+    private static final String KEY_NAME = 'flyway-migration-key'
 
     @Override
     void apply(Project project) {
@@ -24,7 +25,7 @@ class CfMigrationPlugin implements Plugin<Project> {
                 task( "acquireCredentials") {
                     doLast {
                         println "Acquiring database credentials"
-                        credentials = acquireMysqlCredentials(appName, databaseInstanceName)
+                        credentials = acquireMysqlCredentials(databaseInstanceName)
                     }
                 }
 
@@ -87,23 +88,19 @@ class CfMigrationPlugin implements Plugin<Project> {
         return extension
     }
 
-    // The shell/perl 'magic' here is needed because where a database
-    // service uses CredHub, the credentials are not (for obvious reasons)
-    // available via 'cf env' or direct calls to the API. However, the
-    // expanded versions *are* presented to the running Java application
-    // in its environment, which we can access via the /proc filesystem.
-    private static Map acquireMysqlCredentials(cfAppName, databaseInstanceName) {
-        def vcapServicesJson = execute(['cf', 'ssh', cfAppName, '-c',
-                                        'perl -0 -ne "print if (s/^VCAP_SERVICES=//)" /proc/$(pgrep java)/environ'])
-        def vcapServicesMap = new JsonSlurper().parseText(vcapServicesJson)
+    // Some services store their credentials in credhub, so they are
+    // not available in VCAP_SERVICES seen by clients. Therefore, we
+    // create a service key and then obtain the database credentials
+    // from that value. Key creation appears idempotent, so there
+    // is no need to check for prior existence.
+    private static Map acquireMysqlCredentials(databaseInstanceName) {
+        def creationOutput = execute(['cf', 'create-service-key', databaseInstanceName, KEY_NAME])
+        println creationOutput
 
-        def entryWithDbInstance = vcapServicesMap
-                .find { key, value -> value.any { it['name'] == databaseInstanceName } }
+        def serviceKeyJson = execute(['cf', 'service-key', databaseInstanceName, KEY_NAME])
+                .replaceFirst(/(?s)^[^{]*/, '')
 
-        def dbInstance = entryWithDbInstance.value
-                .find { it['name'] == databaseInstanceName }
-
-        return dbInstance['credentials'] as Map
+        return new JsonSlurper().parseText(serviceKeyJson) as Map
     }
 
     private static String execute(List args) {
